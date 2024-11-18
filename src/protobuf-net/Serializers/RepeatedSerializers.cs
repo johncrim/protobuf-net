@@ -70,6 +70,8 @@ namespace ProtoBuf.Serializers
 
             // note that the immutable APIs can look a lot like the non-immutable ones; need to have them with *higher* priority to ensure they get recognized correctly
             Add(typeof(ImmutableArray<>), (root, current, targs) => Resolve(typeof(RepeatedSerializer), nameof(RepeatedSerializer.CreateImmutableArray), targs));
+            var nullableImmutableArrayType = typeof(Nullable<>).MakeGenericType(typeof(ImmutableArray<>));
+            Add(nullableImmutableArrayType, (root, current, targs) => Resolve(typeof(RepeatedSerializer), nameof(RepeatedSerializer.CreateNullableImmutableArray), targs));
             Add(typeof(ImmutableDictionary<,>), (root, current, targs) => Resolve(typeof(MapSerializer), nameof(MapSerializer.CreateImmutableDictionary), targs));
             Add(typeof(ImmutableSortedDictionary<,>), (root, current, targs) => Resolve(typeof(MapSerializer), nameof(MapSerializer.CreateImmutableSortedDictionary), targs));
             Add(typeof(IImmutableDictionary<,>), (root, current, targs) => Resolve(typeof(MapSerializer), nameof(MapSerializer.CreateIImmutableDictionary), targs));

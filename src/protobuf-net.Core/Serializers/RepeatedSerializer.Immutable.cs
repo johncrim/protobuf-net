@@ -16,6 +16,11 @@ namespace ProtoBuf.Serializers
         public static RepeatedSerializer<ImmutableArray<T>, T> CreateImmutableArray<[DynamicallyAccessedMembers(DynamicAccess.ContractType)] T>()
             => SerializerCache<ImmutableArraySerializer<T>>.InstanceField;
 
+        /// <summary>Create a serializer that operates on nullable immutable arrays</summary>
+        [MethodImpl(ProtoReader.HotPath)]
+        public static RepeatedSerializer<Nullable<ImmutableArray<T>>, T> CreateNullableImmutableArray<[DynamicallyAccessedMembers(DynamicAccess.ContractType)] T>()
+            => SerializerCache<NullableImmutableArraySerializer<T>>.InstanceField;
+
         /// <summary>Create a serializer that operates on immutable lists</summary>
         [MethodImpl(ProtoReader.HotPath)]
         public static RepeatedSerializer<ImmutableList<T>, T> CreateImmutableList<[DynamicallyAccessedMembers(DynamicAccess.ContractType)] T>()
@@ -61,8 +66,6 @@ namespace ProtoBuf.Serializers
         public static RepeatedSerializer<IImmutableSet<T>, T> CreateImmutableISet<[DynamicallyAccessedMembers(DynamicAccess.ContractType)] T>()
             => SerializerCache<ImmutableISetSerializer<T>>.InstanceField;
 
-
-
     }
 
     sealed class ImmutableArraySerializer<T> : RepeatedSerializer<ImmutableArray<T>, T>
@@ -101,7 +104,7 @@ namespace ProtoBuf.Serializers
         }
 
         [StructLayout(LayoutKind.Auto)]
-        struct Enumerator : IEnumerator<T>
+        internal struct Enumerator : IEnumerator<T>
         {
             public readonly void Reset() => ThrowHelper.ThrowNotSupportedException();
             public Enumerator(ImmutableArray<T> array) => _iter = array.GetEnumerator();
@@ -110,6 +113,55 @@ namespace ProtoBuf.Serializers
             object IEnumerator.Current => _iter.Current;
             public bool MoveNext() => _iter.MoveNext();
             public readonly void Dispose() { }
+        }
+    }
+
+    // Needed b/c <c>ImmutableArray<T>?<c> is a distinct type from <c>ImmutableArray<T><c>
+    sealed class NullableImmutableArraySerializer<T> : RepeatedSerializer<Nullable<ImmutableArray<T>>, T>
+    {
+        protected override Nullable<ImmutableArray<T>> Initialize(Nullable<ImmutableArray<T>> values, ISerializationContext context)
+            => (!values.HasValue || values.Value.IsDefault) ? ImmutableArray<T>.Empty : values;
+        protected override Nullable<ImmutableArray<T>> Clear(Nullable<ImmutableArray<T>> values, ISerializationContext context)
+            => ImmutableArray<T>.Empty;
+        protected override Nullable<ImmutableArray<T>> AddRange(Nullable<ImmutableArray<T>> values, ref ArraySegment<T> newValues, ISerializationContext context)
+            => newValues.Count == 1 ? values.Value.Add(newValues.Singleton()) : values.Value.AddRange(
+#if BUILD_TOOLS // can't ref the updated lib
+                newValues
+#else
+                new ReadOnlySpan<T>(newValues.Array, newValues.Offset, newValues.Count)
+#endif
+            );
+
+        protected override int TryGetCount(Nullable<ImmutableArray<T>> values) => (!values.HasValue || values.Value.IsDefault || values.Value.IsEmpty) ? 0 : values.Value.Length;
+
+        internal override long Measure(Nullable<ImmutableArray<T>> values, IMeasuringSerializer<T> serializer, ISerializationContext context, WireType wireType)
+        {
+            if (!values.HasValue || values.Value.IsDefault)
+            {
+                return 0;
+            }
+            var iter = new ImmutableArraySerializer<T>.Enumerator(values.Value);
+            return Measure(ref iter, serializer, context, wireType);
+        }
+
+        internal override void WritePacked(ref ProtoWriter.State state, Nullable<ImmutableArray<T>> values, IMeasuringSerializer<T> serializer, WireType wireType)
+        {
+            if (!values.HasValue || values.Value.IsDefault)
+            {
+                return;
+            }
+            var iter = new ImmutableArraySerializer<T>.Enumerator(values.Value);
+            WritePacked(ref state, ref iter, serializer, wireType);
+        }
+
+        internal override void Write(ref ProtoWriter.State state, int fieldNumber, SerializerFeatures category, WireType wireType, Nullable<ImmutableArray<T>> values, ISerializer<T> serializer, SerializerFeatures features)
+        {
+            if (!values.HasValue || values.Value.IsDefault)
+            {
+                return;
+            }
+            var iter = new ImmutableArraySerializer<T>.Enumerator(values.Value);
+            Write(ref state, fieldNumber, category, wireType, ref iter, serializer, features);
         }
     }
 
